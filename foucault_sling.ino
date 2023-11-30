@@ -11,21 +11,21 @@ const int ledPin = 7;
 const unsigned long irTriggerMinPeriod = 100UL; // milliseconds
 const unsigned long irTriggerMaxPeriod = 1500UL; // milliseconds
 
-const unsigned long irTriggerShortInterval = 3*1000UL;// 50;// milliseconds, between up and down swing
-const unsigned long irTriggerRepeatInterval = 8*1000UL; // 7200;// milliseconds
+const unsigned long irTriggerShortInterval = 1*1000UL;// 50;// milliseconds, between up and down swing
+const unsigned long irTriggerRepeatInterval = 5*1000UL; // 7200;// milliseconds
 const unsigned long irTriggerIntervalLeeway = 2000UL; // 200;// milliseconds
 
-const unsigned long irTriggerSetStaleInterval = 60*1000UL; // 12 hours
+const unsigned long irTriggerSetStaleInterval = 120*1000UL; // 12 hours
 
-const unsigned int irTriggerSetCountRequired = 3L; // required consecutive triggers
-const unsigned int irTriggetSetInvalidateCount = 3L;
+const unsigned int irTriggerSetCountRequired = 3; // required consecutive triggers
+const unsigned int irTriggerSetInvalidateCount = 3;
 
 const unsigned long lampTimeSetInterval = 10*1000UL; // 10 seconds
 const unsigned long lampsUpdateInterval = 1*1000UL; // also used for heartbeat
-const unsigned long timePerLed = 2*1000UL;
+const unsigned long timePerLed = 1*60*1000UL;
 
-int irState =  HIGH; // It is pulled low on trigger
-int prevIrState;
+volatile int irState =  HIGH; // It is pulled low on trigger
+volatile unsigned long irMills = 0; // Trigger time
 
 unsigned long lampTime = 0; // zero when sling is overhead
 unsigned long curMills = 0;
@@ -34,6 +34,7 @@ unsigned long lampsUpdateMills = 0;
 
 // timestamps for triggering
 unsigned long irCurrentTriggerStart = 0;
+unsigned long irCurrentTriggerEnd = 0;
 unsigned long irPrevTriggerStart = 0;
 unsigned long irTriggerSetStart = 0;
 unsigned long irTriggerSetLast = 0;
@@ -42,130 +43,49 @@ int irTriggerSetCountFinal = 0;
 
 CRGB leds[NUM_LEDS];
 
-
 void setup() {
   pinMode(irPin, INPUT);
   FastLED.addLeds<NEOPIXEL, ledPin>(leds, NUM_LEDS);
 
+  attachInterrupt(digitalPinToInterrupt(irPin), ir_interrupt, CHANGE);
+
   // Start Serial for debugging
+
+  delay(1000);
   Serial.begin(9600);
   curMills = millis();
   while(!Serial || millis() - curMills < 5000) {;}
   Serial.println("Initialising");
+  delay(1000);
 }
 
-void check_ir_trigger() {
+void loop() {
+  // new loop
+  curMills = millis();
 
-  prevIrState = irState;
-  irState = digitalRead(irPin);
+  handle_ir_trigger();
 
-  // Trigger on IR
-  if ( irState != prevIrState )
-  {
-    // reset trigger counters if we miss a few swings
-    if ( irTriggerSetCount != 0 )
-    {
-      if (irPrevTriggerStart != 0 && curMills - irTriggerSetLast > irTriggetSetInvalidateCount*irTriggerRepeatInterval )
-      {
-        irTriggerSetCount = 0;
-        irTriggerSetCountFinal = irTriggerSetCount;
+  check_ir_trigger();
 
-        Serial.println("Resetting TriggerSet");
-      }
-    }
-    
-    // falling edge, new potential trigger period
-    if ( irState == LOW ) 
-    {
-      Serial.println("Starting Trigger Period");
-      irCurrentTriggerStart = curMills;
-    }
-    // rising edge, see if we want to trigger
-    else {
-      Serial.println("--");
-      Serial.print("Triggered Period: ");
-      Serial.print(curMills - irCurrentTriggerStart);
-      Serial.println("ms");
+  update_lamptime();
 
-      Serial.print("Last Trigger: ");
-      Serial.print(curMills - irPrevTriggerStart);
-      Serial.println("ms");
-      
-      if (curMills - irCurrentTriggerStart >= irTriggerMinPeriod
-              && curMills - irCurrentTriggerStart <= irTriggerMaxPeriod
-      ) {
-        // this seems a valid trigger period length
-        Serial.print("Potential Trigger: ");
-
-        // in shortinterval window?
-        if ( curMills - irPrevTriggerStart < irTriggerShortInterval ) {
-          // keep the previous triggerstart
-          irPrevTriggerStart = irPrevTriggerStart;
-          Serial.print("Short Interval");
-        }
-        // within repeatInterval from the previous trigger?
-        else if (curMills - irPrevTriggerStart >= irTriggerRepeatInterval - irTriggerIntervalLeeway
-                && curMills - irPrevTriggerStart <= irTriggerRepeatInterval + irTriggerIntervalLeeway
-        ) {
-          Serial.print("Repeat Interval");
-
-          // second trigger of a set?
-          if ( curMills -  irTriggerSetLast >= irTriggerSetStaleInterval )
-          {
-            Serial.println(" (First of Set)");
-
-            Serial.print("Last Trigger in previous Set: ");
-            Serial.print(irTriggerSetLast);
-            Serial.println("ms");
-
-            Serial.print("ago: ");
-            Serial.println(curMills - irTriggerSetLast);
-            Serial.print("Stale after: ");
-            Serial.println(irTriggerSetStaleInterval);
-
-            irTriggerSetStart = irPrevTriggerStart;
-            irTriggerSetCount = 0;
-            irTriggerSetCountFinal = 0;
-
-            Serial.print("Set Start: ");
-            Serial.print(irTriggerSetStart);
-            Serial.println("ms");
-          }
-
-          irTriggerSetCount += 1;
-          irTriggerSetLast = irCurrentTriggerStart;
-          Serial.println();
-          Serial.print("TriggerSet Count: ");
-          Serial.print(irTriggerSetCount);
-        }
-        else{
-          Serial.print("wait for repeating trigger in ");
-          Serial.print(irTriggerRepeatInterval);
-          Serial.print(" +- ");
-          Serial.print(irTriggerIntervalLeeway);
-          Serial.print("ms");
-        }
-
-        Serial.println("");
-        irPrevTriggerStart = irCurrentTriggerStart;
-      }
-    }
-  }
+  update_lamps();
 }
 
 void update_lamptime() {
-  if ( irTriggerSetCountFinal < irTriggerSetCountRequired 
+  if ( irTriggerSetCountFinal < irTriggerSetCountRequired
       && irTriggerSetCount < irTriggerSetCountRequired )
   { // not yet enough counts
-    return;  
+    return;
   }
 
   if ( curMills - lampTimeSetMills < lampTimeSetInterval )
-  { // wait longer before updating the lamptime
+  { // wait a little longer
     return;
   }
 
   int thisCount = irTriggerSetCountFinal;
+  // if the current set is large enough use it
   if ( irTriggerSetCount >= irTriggerSetCountRequired )
   {
     thisCount = irTriggerSetCount;
@@ -181,16 +101,28 @@ void update_lamptime() {
 
 void update_lamps() {
   if ( curMills - lampsUpdateMills < lampsUpdateInterval )
-  { // wait a longer time
+  { // wait a little longer
     return;
   }
 
   if ( lampTime != 0 )
   {
-    int currentLed = ((curMills - lampTime) / timePerLed) % NUM_LEDS;
+    int currentLed = ( (curMills - lampTime) / timePerLed) % NUM_LEDS;
 
-    const int backwards = 0;
+    const bool backwards = false;
     const int trailLength = 3;
+
+    if ( (curMills / lampsUpdateInterval) % 5 == 0 )
+    {
+      Serial.print("CurrentLed: ");
+      Serial.print(currentLed);
+      Serial.print(" (curMills - lampTime: ");
+      Serial.print(curMills - lampTime);
+      Serial.print(") / (timePerLed: ");
+      Serial.print(timePerLed);
+      Serial.print(") = ");
+      Serial.println( (curMills - lampTime) / timePerLed );
+    }
 
     for ( int i = 0; i < NUM_LEDS; i++)
     {
@@ -201,7 +133,7 @@ void update_lamps() {
       }
       else
       {
-        ledIdx = (currentLed -i + NUM_LEDS) % NUM_LEDS;
+        ledIdx = (currentLed - i + NUM_LEDS) % NUM_LEDS;
       }
 
       // set lights
@@ -222,19 +154,8 @@ void update_lamps() {
 
   bool heartbeat = (curMills / lampsUpdateInterval) % 2;
   // heartbeat
-  leds[0] =  heartbeat  ? CRGB::Red : CRGB::Green;
+  leds[0] =  heartbeat ? CRGB::Red : CRGB::Green;
 
   FastLED.show();
   lampsUpdateMills = curMills;
-}
-void loop() {
-
-  // new loop
-  curMills = millis();
-
-  check_ir_trigger();
-
-  update_lamptime();
-  
-  update_lamps();
 }
