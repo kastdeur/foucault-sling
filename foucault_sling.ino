@@ -1,8 +1,12 @@
 /*
-Foucault Sling (IR Trigger)
+Foucault Sling (IR Trigger + NeoPixel Leds)
 */
 
+#include <FastLED.h>
+
 const int irPin = 2;
+const int ledPin = 7;
+#define NUM_LEDS 12
 
 const unsigned long irTriggerMinPeriod = 100UL; // milliseconds
 const unsigned long irTriggerMaxPeriod = 1500UL; // milliseconds
@@ -17,13 +21,16 @@ const unsigned int irTriggerSetCountRequired = 3L; // required consecutive trigg
 const unsigned int irTriggetSetInvalidateCount = 3L;
 
 const unsigned long lampTimeSetInterval = 10*1000UL; // 10 seconds
+const unsigned long lampsUpdateInterval = 1*1000UL; // also used for heartbeat
+const unsigned long timePerLed = 2*1000UL;
 
 int irState =  HIGH; // It is pulled low on trigger
 int prevIrState;
 
 unsigned long lampTime = 0; // zero when sling is overhead
 unsigned long curMills = 0;
-unsigned long lampTimeSetMills = 0; // only set the lampTime once every lampTimeSetInterval
+unsigned long lampTimeSetMills = 0; // only set the lampTime once every lampUpdateInterval
+unsigned long lampsUpdateMills = 0;
 
 // timestamps for triggering
 unsigned long irCurrentTriggerStart = 0;
@@ -33,27 +40,24 @@ unsigned long irTriggerSetLast = 0;
 int irTriggerSetCount = 0;
 int irTriggerSetCountFinal = 0;
 
+CRGB leds[NUM_LEDS];
+
 
 void setup() {
-  pinMode(LED_BUILTIN, OUTPUT);
   pinMode(irPin, INPUT);
+  FastLED.addLeds<NEOPIXEL, ledPin>(leds, NUM_LEDS);
 
+  // Start Serial for debugging
   Serial.begin(9600);
-
-  while(!Serial) {
-    ;
-  }
-
-  Serial.println("Initialise");
+  curMills = millis();
+  while(!Serial || millis() - curMills < 5000) {;}
+  Serial.println("Initialising");
 }
 
-void loop() {
+void check_ir_trigger() {
+
   prevIrState = irState;
-
-  // new loop
-  curMills = millis();
   irState = digitalRead(irPin);
-
 
   // Trigger on IR
   if ( irState != prevIrState )
@@ -147,34 +151,90 @@ void loop() {
       }
     }
   }
+}
 
-  // Reset the lampTime
-  if ( irTriggerSetCountFinal >= irTriggerSetCountRequired || irTriggerSetCount >= irTriggerSetCountRequired )
-  { // set lampTime even if we are not yet finalised
+void update_lamptime() {
+  if ( irTriggerSetCountFinal < irTriggerSetCountRequired 
+      && irTriggerSetCount < irTriggerSetCountRequired )
+  { // not yet enough counts
+    return;  
+  }
 
-    // only set lampTime if the set is not stale yet
-    if ( curMills - lampTimeSetMills > lampTimeSetInterval )
+  if ( curMills - lampTimeSetMills < lampTimeSetInterval )
+  { // wait longer before updating the lamptime
+    return;
+  }
+
+  int thisCount = irTriggerSetCountFinal;
+  if ( irTriggerSetCount >= irTriggerSetCountRequired )
+  {
+    thisCount = irTriggerSetCount;
+  }
+
+  lampTime = irTriggerSetStart + thisCount * irTriggerRepeatInterval / 2;
+
+  lampTimeSetMills = curMills;
+
+  Serial.print("Setting lampTime: ");
+  Serial.println(lampTime);
+}
+
+void update_lamps() {
+  if ( curMills - lampsUpdateMills < lampsUpdateInterval )
+  { // wait a longer time
+    return;
+  }
+
+  if ( lampTime != 0 )
+  {
+    int currentLed = ((curMills - lampTime) / timePerLed) % NUM_LEDS;
+
+    const int backwards = 0;
+    const int trailLength = 3;
+
+    for ( int i = 0; i < NUM_LEDS; i++)
     {
-      int thisCount = irTriggerSetCountFinal;
-      if ( irTriggerSetCount >= irTriggerSetCountRequired )
+      int ledIdx = 0;
+      if (backwards)
       {
-        thisCount = irTriggerSetCount;
+        ledIdx = (i - currentLed + NUM_LEDS) % NUM_LEDS;
+      }
+      else
+      {
+        ledIdx = (currentLed -i + NUM_LEDS) % NUM_LEDS;
       }
 
-      lampTime = irTriggerSetStart + thisCount * irTriggerRepeatInterval / 2;
-
-      lampTimeSetMills = curMills;
-
-      Serial.print("Setting lampTime: ");
-      Serial.println(lampTime);
-      Serial.println(curMills - lampTime);
-      Serial.println(lampTimeSetInterval);
+      // set lights
+      if (i == 0)
+      {
+        leds[ledIdx] = CRGB::White;
+      }
+      else if ( i < trailLength)
+      {
+        leds[ledIdx] = CRGB::Blue;
+      }
+      else
+      {
+        leds[ledIdx] = CRGB::Black;
+      }
     }
   }
 
-  // set correct lamps..
-  if ( lampTime != 0 && irTriggerSetLast != 0)
-  {
-    digitalWrite(LED_BUILTIN, HIGH );
-  }
+  bool heartbeat = (curMills / lampsUpdateInterval) % 2;
+  // heartbeat
+  leds[0] =  heartbeat  ? CRGB::Red : CRGB::Green;
+
+  FastLED.show();
+  lampsUpdateMills = curMills;
+}
+void loop() {
+
+  // new loop
+  curMills = millis();
+
+  check_ir_trigger();
+
+  update_lamptime();
+  
+  update_lamps();
 }
