@@ -31,13 +31,15 @@ const unsigned int irTriggerSetCountRequired = 3; // required consecutive trigge
 const unsigned int irTriggerSetInvalidateCount = 3;
 
 const unsigned long lampTimeSetInterval = 10*1000UL; // 10 seconds
-const unsigned long lampsUpdateInterval = 1*1000UL; // also used for heartbeat
+const unsigned long lampsUpdateInterval = 1*1000UL;
+const unsigned long heartbeatInterval = 1000UL;
 const unsigned long timePerLed = 1*60*1000UL;
 
 volatile int irState =  HIGH; // It is pulled low on trigger
 volatile unsigned long irMills = 0; // Trigger time
 
 unsigned long lampTime = 0; // zero when sling is overhead
+unsigned long heartbeatMills = 0;
 unsigned long curMills = 0;
 unsigned long lampTimeSetMills = 0; // only set the lampTime once every lampUpdateInterval
 unsigned long lampsUpdateMills = 0;
@@ -53,9 +55,18 @@ int irTriggerSetCountFinal = 0;
 
 CRGB leds[NUM_LEDS];
 
+#if ESP32
+CRGB heartbeatLed[1];
+const int heartbeatPin = 18;
+#endif /* ESP32 */
+
 void setup() {
   pinMode(irPin, INPUT);
   FastLED.addLeds<NEOPIXEL, ledPin>(leds, NUM_LEDS);
+
+  #if ESP32
+    FastLED.addLeds<NEOPIXEL, heartbeatPin>(heartbeatLed, 1);
+  #endif /* ESP32 */
 
   // attach interrupt
   #if ESP32
@@ -86,6 +97,26 @@ void loop() {
   update_lamptime();
 
   update_lamps();
+
+  heartbeat();
+}
+
+void heartbeat() {
+  if ( curMills - heartbeatMills < heartbeatInterval )
+  { // wait a little longer
+    return;
+  }
+  heartbeatMills = curMills;
+
+  bool heartbeat = (curMills / heartbeatInterval) % 2;
+
+  #if ESP32
+  heartbeatLed[0] = heartbeat ? CRGB::Red : CRGB::Green;
+  #else
+  leds[0] =  heartbeat ? CRGB::Red : CRGB::Green;
+  #endif /* ESP32 */
+
+  FastLED.show();
 }
 
 void update_lamptime() {
@@ -122,12 +153,15 @@ void update_lamps() {
     return;
   }
 
-  if ( lampTime != 0 )
-  {
-    int currentLed = ( (curMills - lampTime) / timePerLed) % NUM_LEDS;
+  if ( lampTime == 0 )
+  { // no lamps yet
+    return;
+  }
 
-    const bool backwards = false;
-    const int trailLength = 3;
+  const bool backwards = false;
+  const int trailLength = 3;
+
+  int currentLed = ( (curMills - lampTime) / timePerLed) % NUM_LEDS;
 
     #if ENABLE_SERIAL
     if ( (curMills / lampsUpdateInterval) % 5 == 0 )
@@ -143,37 +177,32 @@ void update_lamps() {
     }
     #endif /* ENABLE_SERIAL */
 
-    for ( int i = 0; i < NUM_LEDS; i++)
+  for ( int i = 0; i < NUM_LEDS; ++i)
+  {
+    int ledIdx = 0;
+    if (backwards)
     {
-      int ledIdx = 0;
-      if (backwards)
-      {
-        ledIdx = (i - currentLed + NUM_LEDS) % NUM_LEDS;
-      }
-      else
-      {
-        ledIdx = (currentLed - i + NUM_LEDS) % NUM_LEDS;
-      }
+      ledIdx = (i - currentLed + NUM_LEDS) % NUM_LEDS;
+    }
+    else
+    {
+      ledIdx = (currentLed - i + NUM_LEDS) % NUM_LEDS;
+    }
 
-      // set lights
-      if (i == 0)
-      {
-        leds[ledIdx] = CRGB::White;
-      }
-      else if ( i < trailLength)
-      {
-        leds[ledIdx] = CRGB::Blue;
-      }
-      else
-      {
-        leds[ledIdx] = CRGB::Black;
-      }
+    // set lights
+    if (i == 0)
+    {
+      leds[ledIdx] = CRGB::White;
+    }
+    else if ( i < trailLength)
+    {
+      leds[ledIdx] = CRGB::Blue;
+    }
+    else
+    {
+      leds[ledIdx] = CRGB::Black;
     }
   }
-
-  bool heartbeat = (curMills / lampsUpdateInterval) % 2;
-  // heartbeat
-  leds[0] =  heartbeat ? CRGB::Red : CRGB::Green;
 
   FastLED.show();
   lampsUpdateMills = curMills;
