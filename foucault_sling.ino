@@ -4,11 +4,21 @@ Foucault Sling (IR Trigger + NeoPixel Leds)
 
 #include <FastLED.h>
 
+#define ENABLE_SERIAL 0
+
+#if ESP32
+#include <Arduino.h>
+#define ENABLE_SERIAL 0
+const int irPin = 14;
+const int ledPin = 16;
+#else /* not ESP32 */
 const int irPin = 2;
 const int ledPin = 7;
+#endif /* ESP32 */
+
 #define NUM_LEDS 12
 
-const unsigned long irTriggerMinPeriod = 100UL; // milliseconds
+const unsigned long irTriggerMinPeriod = 10UL; // milliseconds
 const unsigned long irTriggerMaxPeriod = 1500UL; // milliseconds
 
 const unsigned long irTriggerShortInterval = 1*1000UL;// 50;// milliseconds, between up and down swing
@@ -47,16 +57,22 @@ void setup() {
   pinMode(irPin, INPUT);
   FastLED.addLeds<NEOPIXEL, ledPin>(leds, NUM_LEDS);
 
-  attachInterrupt(digitalPinToInterrupt(irPin), ir_interrupt, CHANGE);
+  // attach interrupt
+  #if ESP32
+    attachInterrupt(irPin, ir_interrupt, CHANGE);
+  #else
+    attachInterrupt(digitalPinToInterrupt(irPin), ir_interrupt, CHANGE);
+  #endif /* ESP32 */
 
+  #if ENABLE_SERIAL
   // Start Serial for debugging
-
   delay(1000);
   Serial.begin(9600);
   curMills = millis();
   while(!Serial || millis() - curMills < 5000) {;}
   Serial.println("Initialising");
   delay(1000);
+  #endif /* ENABLE_SERIAL */
 }
 
 void loop() {
@@ -94,9 +110,10 @@ void update_lamptime() {
   lampTime = irTriggerSetStart + thisCount * irTriggerRepeatInterval / 2;
 
   lampTimeSetMills = curMills;
-
+  #if ENABLE_SERIAL
   Serial.print("Setting lampTime: ");
   Serial.println(lampTime);
+  #endif /* ENABLE_SERIAL */
 }
 
 void update_lamps() {
@@ -112,6 +129,7 @@ void update_lamps() {
     const bool backwards = false;
     const int trailLength = 3;
 
+    #if ENABLE_SERIAL
     if ( (curMills / lampsUpdateInterval) % 5 == 0 )
     {
       Serial.print("CurrentLed: ");
@@ -123,6 +141,7 @@ void update_lamps() {
       Serial.print(") = ");
       Serial.println( (curMills - lampTime) / timePerLed );
     }
+    #endif /* ENABLE_SERIAL */
 
     for ( int i = 0; i < NUM_LEDS; i++)
     {

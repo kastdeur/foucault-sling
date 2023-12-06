@@ -28,6 +28,7 @@ void check_ir_trigger() {
     return;
   }
 
+  #if ENABLE_SERIAL
   Serial.println("--");
   Serial.print("Triggered Period: ");
   Serial.print(curMills - irCurrentTriggerStart);
@@ -36,6 +37,7 @@ void check_ir_trigger() {
   Serial.print("Last Trigger: ");
   Serial.print(curMills - irPrevTriggerStart);
   Serial.println("ms");
+  #endif /* ENABLE_SERIAL */
 
   // signal this period trigger has been used
   irCurrentTriggerEnd = irCurrentTriggerStart;
@@ -48,39 +50,52 @@ void check_ir_trigger() {
       irTriggerSetCount = 0;
       irTriggerSetCountFinal = irTriggerSetCount;
 
+      #if ENABLE_SERIAL
       Serial.println("Resetting TriggerSet");
+      #endif /* ENABLE_SERIAL */
     }
   }
 
   // do we want to trigger?
   if (curMills - irCurrentTriggerStart <= irTriggerMinPeriod ) {
+    #if ENABLE_SERIAL
     Serial.println("Too short Trigger");
+    #endif /* ENABLE_SERIAL */
     return;
   }
   else if ( curMills - irCurrentTriggerStart >= irTriggerMaxPeriod
   ) {
+    #if ENABLE_SERIAL
     Serial.println("Too long Trigger");
+    #endif /* ENABLE_SERIAL */
     return;
   }
 
+  #if ENABLE_SERIAL
   // this seems a valid trigger period length
   Serial.print("Potential Trigger: ");
+  #endif /* ENABLE_SERIAL */
 
   // in shortinterval window?
   if ( curMills - irPrevTriggerStart < irTriggerShortInterval ) {
     // keep the previous triggerstart
     irPrevTriggerStart = irPrevTriggerStart;
+    #if ENABLE_SERIAL
     Serial.print("Short Interval");
+    #endif /* ENABLE_SERIAL */
   }
   // within repeatInterval from the previous trigger?
   else if (curMills - irPrevTriggerStart >= irTriggerRepeatInterval - irTriggerIntervalLeeway
           && curMills - irPrevTriggerStart <= irTriggerRepeatInterval + irTriggerIntervalLeeway
   ) {
+    #if ENABLE_SERIAL
     Serial.print("Repeat Interval");
+    #endif /* ENABLE_SERIAL */
 
     // second trigger of a set?
     if ( curMills -  irTriggerSetLast >= irTriggerSetStaleInterval )
     {
+      #if ENABLE_SERIAL
       Serial.println(" (Second of Set)");
 
       Serial.print("Last Trigger in previous Set: ");
@@ -91,14 +106,17 @@ void check_ir_trigger() {
       Serial.println(curMills - irTriggerSetLast);
       Serial.print("Stale at: ");
       Serial.println(irTriggerSetStaleInterval);
+      #endif /* ENABLE_SERIAL */
 
       irTriggerSetStart = irPrevTriggerStart;
       irTriggerSetCount = 0;
       irTriggerSetCountFinal = 0;
 
+      #if ENABLE_SERIAL
       Serial.print("Set Start: ");
       Serial.print(irTriggerSetStart);
       Serial.println("ms");
+      #endif /* ENABLE_SERIAL */
     }
 
     irTriggerSetCount += 1;
@@ -107,6 +125,7 @@ void check_ir_trigger() {
     Serial.print("TriggerSet Count: ");
     Serial.print(irTriggerSetCount);
   }
+  #if ENABLE_SERIAL
   else{
     Serial.print("wait for repeating trigger in ");
     Serial.print(irTriggerRepeatInterval);
@@ -116,5 +135,7 @@ void check_ir_trigger() {
   }
 
   Serial.println("");
+  #endif /* ENABLE_SERIAL */
+
   irPrevTriggerStart = irCurrentTriggerStart;
 }
