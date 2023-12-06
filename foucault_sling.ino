@@ -5,6 +5,7 @@ Foucault Sling (IR Trigger + NeoPixel Leds)
 #include <FastLED.h>
 
 #define ENABLE_SERIAL 0
+#define TRIG_LED 0
 
 #if ESP32
 #include <Arduino.h>
@@ -138,7 +139,7 @@ void update_lamptime() {
     thisCount = irTriggerSetCount;
   }
 
-  lampTime = irTriggerSetStart + thisCount * irTriggerRepeatInterval / 2;
+  lampTime = irTriggerSetStart + irTriggerRepeatInterval * thisCount / 2;
 
   lampTimeSetMills = curMills;
   #if ENABLE_SERIAL
@@ -148,6 +149,17 @@ void update_lamptime() {
 }
 
 void update_lamps() {
+  #if ENABLE_TRIGLED
+  // Debugging
+  if ( irCurrentTriggerStart > irCurrentTriggerEnd ) {
+    leds[6] = CRGB::Blue;
+  }
+  else {
+    leds[6] = CRGB::Black;
+  }
+  FastLED.show();
+  #endif /* ENABLE_TRIGLED */
+
   if ( curMills - lampsUpdateMills < lampsUpdateInterval )
   { // wait a little longer
     return;
